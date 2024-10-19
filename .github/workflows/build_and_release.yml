@@ -1,0 +1,51 @@
+name: Build and release dictionary for Fcitx5 and RIME
+
+on:
+  schedule:
+    - cron: '30 23 19 * *'
+  workflow_dispatch:
+
+jobs:
+  build_and_release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Prepare Environment for Fetch
+        run: pip3 install beautifulsoup4
+
+      - name: Fetch
+        run: |
+          python3 DictSpider.py -v -j 16
+
+      - name: Prepare Environment for Build
+        run: |
+          sudo apt install dotnet-runtime-8.0
+          sudo apt install libime-bin
+
+          wget https://github.com/studyzy/imewlconverter/releases/download/v3.1.1/imewlconverter_Linux.tar.gz
+          tar -zxf imewlconverter_Linux.tar.gz
+
+          echo "${GITHUB_WORKSPACE}/publish" >> "$GITHUB_PATH"
+
+      - name: Build
+        run: |
+          make build_fcitx build_rime
+          tar -zcf sougou_dict.tar.gz sougou_dict
+          tar -zcf baidu_dict.tar.gz baidu_dict
+
+      - name: Get date
+        id: date
+        run: echo "date=$(date +%Y%m%d)" >> "$GITHUB_OUTPUT"
+
+      - name: Release
+        uses: ncipollo/release-action@v1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          artifacts: "sougou.dict,sougou.dict.yaml,baidu.dict,baidu.dict.yaml,sougou_dict.tar.gz,baidu_dict.tar.gz"
+          commit: ${{ github.sha }}
+          tag: ${{ steps.date.outputs.date }}
+          allowUpdates: true
