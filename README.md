@@ -8,6 +8,10 @@ Dictionaries are also automatically built and released monthly for fcitx5 and ri
 
 ## Installation
 
+### Gentoo
+
+Available in [`gentoo-zh`](https://github.com/microcai/gentoo-zh) as [`app-dicts/fcitx-pinyin-sougou-baidu`](https://github.com/microcai/gentoo-zh/tree/master/app-dicts/fcitx-pinyin-sougou-baidu) ebuild.
+
 ### Pre-built
 
 #### fcitx5
