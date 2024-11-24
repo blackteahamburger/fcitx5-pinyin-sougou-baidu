@@ -25,22 +25,20 @@ baidu.source.fcitx:
 	test -d baidu_dict || { echo The baidu_dict folder does not exist!; exit 1; }
 	ImeWlConverterCmd -ft:rm:eng -i:bdict baidu_dict -o:libimetxt baidu.source.fcitx
 	sed -i -E -e '/cuang|cing|ciao|cer|cian|cuai|cie|cei/d' \
-		-e "/^巨(.*) ju'shi 1\$$/d" \
-		-e "/^(.*) (pi'ti|shi) 1\$$/d" \
-		-e "/^小(.*) xiao'(shi|pi) 1\$$/d" \
-		-e "/^丽(.*) li'shi 1\$$/d" \
-		-e "/^小(.*) xiao'pi'ti 1\$$/d" \
+		-e "/^巨.* ju'shi 1\$$/d" \
+		-e "/^.* (pi'ti|shi) 1\$$/d" \
+		-e "/^小.* xiao'(shi|pi('ti)?) 1\$$/d" \
+		-e "/^丽.* li'shi 1\$$/d" \
 		baidu.source.fcitx
 
 baidu.source.rime:
 	test -d baidu_dict || { echo The baidu_dict folder does not exist!; exit 1; }
 	ImeWlConverterCmd -ft:rm:eng -i:bdict baidu_dict -o:rime baidu.source.rime
 	sed -i -E -e '/cuang|cing|ciao|cer|cian|cuai|cie|cei/d' \
-		-e "/^巨(.*) ju'shi 1\$$/d" \
-		-e "/^(.*) (pi'ti|shi) 1\$$/d" \
-		-e "/^小(.*) xiao'(shi|pi) 1\$$/d" \
-		-e "/^丽(.*) li'shi 1\$$/d" \
-		-e "/^小(.*) xiao'pi'ti 1\$$/d" \
+		-e "/^巨.* ju'shi 1\$$/d" \
+		-e "/^.* (pi'ti|shi) 1\$$/d" \
+		-e "/^小.* xiao'(shi|pi('ti)?) 1\$$/d" \
+		-e "/^丽.* li'shi 1\$$/d" \
 		baidu.source.rime
 
 baidu.dict: baidu.source.fcitx
