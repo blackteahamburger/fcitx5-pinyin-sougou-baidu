@@ -18,7 +18,7 @@ class DictSpider:
 	def __init__(
 		self,
 		sougou_save_path: Path = Path("sougou_dict"),
-		sougou_exclude_list: set[str] = set(),
+		sougou_exclude_list: set[str] = {"2775", "15946", "15233"},
 		baidu_save_path: Path = Path("baidu_dict"),
 		baidu_exclude_list: set[str] = {"4206105738"},
 		concurrent_downloads: int = os.cpu_count() * 2,
@@ -55,6 +55,8 @@ class DictSpider:
 			return session.get(url, headers=self.headers, timeout=self.timeout)
 
 	def __download(self, name: str, url: str, category_path: Path):
+		if not name.rpartition("_")[0]:
+			log.warning(f"{name} has an empty name!")
 		file_path = category_path / name
 		if file_path.is_file():
 			log.warning(f"{file_path} already exists, skipping...")
@@ -62,7 +64,7 @@ class DictSpider:
 		retries = 0
 		while not (content := self.__get_html(url).content):
 			if retries == 5:
-				# For dictionaries like 威海地名
+				# For dictionaries like 医学八_3183610510.bdict
 				log.warning(f"{name} is empty, skipping...")
 				return
 			retries += 1
@@ -74,14 +76,14 @@ class DictSpider:
 			self.__executor.submit(
 				self.__download,
 				(
-					# For dictionaries like 天线行业/BSA
+					# For dictionaries like 天线行业/BSA_67002
 					dict_td_title.string.replace("/", "-")
 					.replace(",", "-")
 					.replace("|", "-")
 					.replace("\\", "-")
 					.replace("'", "-")
 					if dict_td_title.string
-					else ""  # For dictionaries without a name like index 15946
+					else ""  # For dictionaries without a name
 				)
 				+ "_"
 				+ dict_td_id
@@ -107,7 +109,7 @@ class DictSpider:
 			category_path = self.sougou_save_path / (
 				soup.find("title").string.partition("_")[0] + "_" + category
 			)
-			category_path.mkdir(exist_ok=True)
+			category_path.mkdir(parents=True, exist_ok=True)
 		else:
 			category_path = self.sougou_save_path / "城市信息大全_167"
 		page_n = (
@@ -128,7 +130,7 @@ class DictSpider:
 	def __sougou_download_category_167(self):
 		"""For category 167 that does not have a page"""
 		category_path = self.sougou_save_path / "城市信息大全_167"
-		category_path.mkdir(exist_ok=True)
+		category_path.mkdir(parents=True, exist_ok=True)
 		self.__futures.extend(
 			self.__executor.submit(
 				self.__sougou_download_category,
@@ -144,7 +146,7 @@ class DictSpider:
 	def __sougou_download_category_0(self):
 		"""For dictionaries that do not belong to any categories"""
 		category_path = self.sougou_save_path / "未分类_0"
-		category_path.mkdir(exist_ok=True)
+		category_path.mkdir(parents=True, exist_ok=True)
 		self.__futures.append(
 			self.__executor.submit(
 				self.__download,
@@ -172,7 +174,6 @@ class DictSpider:
 		)
 
 	def __sougou_download_dicts(self, categories: set[str] | None):
-		self.sougou_save_path.mkdir(parents=True, exist_ok=True)
 		self.__futures.extend(
 			self.__executor.submit(self.__sougou_download_category_0)
 			if category == "0"
@@ -199,7 +200,7 @@ class DictSpider:
 		self.__futures.extend(
 			self.__executor.submit(
 				self.__download,
-				# For dictionaries like 汽车常用词/术语
+				# For dictionaries like 汽车常用词/术语_3132361350
 				dict_td["dict-name"].replace("/", "-") + "_" + dict_td_id + ".bdict",
 				"https://shurufa.baidu.com/dict_innerid_download?innerid=" + dict_td_id,
 				category_path,
@@ -221,7 +222,7 @@ class DictSpider:
 		category_path = self.baidu_save_path / (
 			soup.find("title").string.rpartition("-")[-1] + "_" + category
 		)
-		category_path.mkdir(exist_ok=True)
+		category_path.mkdir(parents=True, exist_ok=True)
 		page_n = (
 			2
 			if (
@@ -243,7 +244,6 @@ class DictSpider:
 		)
 
 	def __baidu_download_dicts(self, categories: set[str] | None):
-		self.baidu_save_path.mkdir(parents=True, exist_ok=True)
 		self.__futures.extend(
 			self.__executor.submit(self.__baidu_download_category, category)
 			for category in (
@@ -284,21 +284,21 @@ if __name__ == "__main__":
 		"-S",
 		action=argparse.BooleanOptionalAction,
 		default=True,
-		help="Download Sougou dictionaries.\n" "Default: True",
+		help="Download Sougou dictionaries.\nDefault: True",
 	)
 	parser.add_argument(
 		"--baidu",
 		"-B",
 		action=argparse.BooleanOptionalAction,
 		default=True,
-		help="Download Baidu dictionaries.\n" "Default: True",
+		help="Download Baidu dictionaries.\nDefault: True",
 	)
 	parser.add_argument(
 		"--sougou_directory",
 		"-d",
 		default="sougou_dict",
 		type=Path,
-		help="The directory to save Sougou dictionaries.\n" "Default: sougou_dict.",
+		help="The directory to save Sougou dictionaries.\nDefault: sougou_dict.",
 		metavar="DIR",
 	)
 	parser.add_argument(
@@ -306,7 +306,7 @@ if __name__ == "__main__":
 		"-D",
 		default="baidu_dict",
 		type=Path,
-		help="The directory to save Baidu dictionaries.\n" "Default: baidu_dict.",
+		help="The directory to save Baidu dictionaries.\nDefault: baidu_dict.",
 		metavar="DIR",
 	)
 	parser.add_argument(
@@ -331,10 +331,12 @@ if __name__ == "__main__":
 	parser.add_argument(
 		"--sougou_exclude",
 		"-e",
-		default=[],
+		default=["2775", "15946", "15233"],
 		nargs="+",
 		help="List of Sougou dictionary indexes to exclude downloading.\n"
-		"Default: None.\n",
+		"Default: 2775 (威海地名): nonexistent dictionary\n"
+		"	 15946: nonexistent dictionary"
+		"	 15233: nonexistent dictionary",
 		metavar="DICTIONARY",
 	)
 	parser.add_argument(
@@ -351,7 +353,7 @@ if __name__ == "__main__":
 		"-j",
 		default=os.cpu_count() * 2,
 		type=int,
-		help="Set the number of parallel downloads.\n" "Default: os.cpu_count() * 2",
+		help="Set the number of parallel downloads.\nDefault: os.cpu_count() * 2",
 		metavar="N",
 	)
 	parser.add_argument(
@@ -359,7 +361,7 @@ if __name__ == "__main__":
 		"-m",
 		default=5,
 		type=int,
-		help="Set the maximum number of retries.\n" "Default: 5",
+		help="Set the maximum number of retries.\nDefault: 5",
 		metavar="N",
 	)
 	parser.add_argument(
@@ -367,7 +369,7 @@ if __name__ == "__main__":
 		"-t",
 		default=60,
 		type=float,
-		help="Set timeout in seconds.\n" "Default: 60",
+		help="Set timeout in seconds.\nDefault: 60",
 		metavar="SEC",
 	)
 	parser.add_argument(
@@ -375,13 +377,13 @@ if __name__ == "__main__":
 		"-v",
 		action=argparse.BooleanOptionalAction,
 		default=False,
-		help="Verbose output.\n" "Default: False",
+		help="Verbose output.\nDefault: False",
 	)
 	parser.add_argument(
 		"--debug",
 		action=argparse.BooleanOptionalAction,
 		default=False,
-		help="Output debug info.\n" "Default: False",
+		help="Output debug info.\nDefault: False",
 	)
 	args = parser.parse_args()
 	with DictSpider(
@@ -402,12 +404,12 @@ if __name__ == "__main__":
 			else logging.WARNING,
 		)
 		SGSpider.download_dicts(
-			[]
+			set()
 			if not args.sougou
 			else None
 			if args.sougou_categories is None
 			else set(args.sougou_categories),
-			[]
+			set()
 			if not args.baidu
 			else None
 			if args.baidu_categories is None
