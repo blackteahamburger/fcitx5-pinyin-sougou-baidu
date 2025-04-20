@@ -6,6 +6,8 @@ Dictionaries are also automatically built and released monthly for fcitx5 and ri
 
 `Makefile` is modified from [fcitx5-pinyin-zhwiki](https://github.com/felixonmars/fcitx5-pinyin-zhwiki).
 
+**Note**: (2025/04/20) Webpages of Sougou dictionaries under category 167 is very unstable now, which may result in some dictionaries being missing.
+
 **Warning**:  Since the websites of Sougou and Baidu dictionaries may change at any time, making the spider invalid, please check whether some downloaded dictionaries are missing (a notable feature is the file size difference from previous releases).
 
 ## Installation
