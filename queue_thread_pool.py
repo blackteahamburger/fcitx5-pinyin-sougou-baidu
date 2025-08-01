@@ -155,6 +155,6 @@ class QueueThreadPool:
             try:
                 fn(*args)
             except Exception:
-                logger.exception("Exception in thread pool task")
+                logger.exception("Exception in thread pool task:")
             # Show this work has been completed:
             self._task_queue.task_done()
