@@ -13,7 +13,7 @@ from __future__ import annotations
 import logging
 from queue import Queue
 from threading import Thread
-from typing import TYPE_CHECKING, Any, Self
+from typing import TYPE_CHECKING, Self
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -56,7 +56,7 @@ class QueueThreadPool:
         """
         self._pool_size = pool_size
         self._task_queue: Queue[
-            tuple[Callable[..., Any], tuple[Any]] | None
+            tuple[Callable[..., object], tuple[object]] | None
         ] = Queue()
         self._shutting_down = False
         for _ in range(self._pool_size):
@@ -115,13 +115,13 @@ class QueueThreadPool:
             self._task_queue.join()
         self._terminate_threads()
 
-    def submit(self, fn: Callable[..., Any], *args: Any) -> None:  # noqa: ANN401
+    def submit(self, fn: Callable[..., object], *args: object) -> None:
         """
         Submit a task to the thread pool.
 
         Args:
-            fn (Callable[..., Any]): The function to execute.
-            *args (Any): Arguments to pass to the function.
+            fn (Callable[..., object]): The function to execute.
+            *args (object): Arguments to pass to the function.
 
         """
         if self._shutting_down:
