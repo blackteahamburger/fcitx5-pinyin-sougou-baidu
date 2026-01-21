@@ -2,7 +2,7 @@ name: Build and release dictionary for Fcitx5 and RIME
 
 on:
   schedule:
-    - cron: '30 23 19 * *'
+    - cron: "30 23 19 * *"
   workflow_dispatch:
 
 jobs:
@@ -10,9 +10,13 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
+
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: "9.0.x"
 
       - name: Prepare Environment for Fetch
         run: pip3 install beautifulsoup4
@@ -23,7 +27,6 @@ jobs:
 
       - name: Prepare Environment for Build
         run: |
-          sudo apt install dotnet-runtime-9.0
           sudo apt install libime-bin
 
           wget https://github.com/studyzy/imewlconverter/releases/download/v3.3.1/imewlconverter_Linux.tar.gz
