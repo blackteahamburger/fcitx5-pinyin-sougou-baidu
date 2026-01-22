@@ -32,10 +32,10 @@ jobs:
         run: |
           sudo apt install libime-bin
 
-          wget https://github.com/studyzy/imewlconverter/releases/download/v3.3.1/imewlconverter_Linux.tar.gz
-          tar -zxf imewlconverter_Linux.tar.gz
+          wget https://github.com/studyzy/imewlconverter/releases/download/v3.3.1/imewlconverter_linux-x64.tar.gz
+          tar -zxf imewlconverter_linux-x64.tar.gz
 
-          echo "${GITHUB_WORKSPACE}/publish" >> "$GITHUB_PATH"
+          echo "${GITHUB_WORKSPACE}/publish/linux-x64" >> "$GITHUB_PATH"
 
       - name: Build
         run: |
