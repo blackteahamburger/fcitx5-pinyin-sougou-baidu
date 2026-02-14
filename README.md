@@ -27,6 +27,8 @@ You need to download Sougou/Baidu dictionaries first with `DictSpider.py` or fro
 
 Build requirement: [>=imewlconverter-3.1.1](https://github.com/studyzy/imewlconverter) (make sure `ImeWlConverterCmd` is added to `PATH`)
 
+**Note**: You need <=imewlconverter-3.3.0 to build Baidu dictionaries, see [this issue](https://github.com/studyzy/imewlconverter/issues/381).
+
 #### fcitx5
 Extra build requirement: [libime](https://github.com/fcitx/libime/)
 ```
