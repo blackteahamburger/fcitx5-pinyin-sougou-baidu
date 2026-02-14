@@ -42,7 +42,6 @@ jobs:
         run: |
           make build_fcitx build_rime
           tar -zcf sougou_dict.tar.gz sougou_dict
-          tar -zcf baidu_dict.tar.gz baidu_dict
 
       - name: Get date
         id: date
@@ -52,7 +51,7 @@ jobs:
         uses: ncipollo/release-action@v1
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          artifacts: "sougou.dict,sougou.dict.yaml,baidu.dict,baidu.dict.yaml,sougou_dict.tar.gz,baidu_dict.tar.gz"
+          artifacts: "sougou.dict,sougou.dict.yaml,sougou_dict.tar.gz"
           commit: ${{ github.sha }}
           tag: ${{ steps.date.outputs.date }}
           allowUpdates: true
