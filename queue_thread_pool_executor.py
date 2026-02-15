@@ -35,7 +35,6 @@ class QueueThreadPoolExecutor(Executor):
             Thread(target=self._executor, daemon=True).start()
 
     def _terminate_threads(self) -> None:
-        """Tell threads to terminate."""
         self._shutting_down = True
 
         for _ in range(self._max_workers):

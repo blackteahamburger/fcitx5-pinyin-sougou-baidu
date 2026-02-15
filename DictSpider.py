@@ -173,15 +173,6 @@ class DictSpider:
     def _submit(
         self, fn: Callable[..., object], /, *args: object, **kwargs: object
     ) -> None:
-        """
-        Submit a task to the executor and track its future.
-
-        Args:
-            fn (Callable[..., object]): The function to execute.
-            *args (object): Arguments for the function.
-            **kwargs (object): Keyword arguments for the function.
-
-        """
         future = self._executor.submit(fn, *args, **kwargs)
         with self._lock:
             self._futures.append(future)
@@ -203,19 +194,6 @@ class DictSpider:
         return session
 
     def _get_html(self, url: str) -> requests.Response:
-        """
-        Fetch HTML content from a URL with retries.
-
-        Args:
-            url (str): The URL to fetch.
-
-        Returns:
-            requests.Response: The HTTP response.
-
-        Raises:
-            requests.RequestException: If the request fails after all retries.
-
-        """
         last_exception: Exception | None = None
         for _ in range(self.max_retries + 1):
             try:
@@ -238,15 +216,6 @@ class DictSpider:
         raise requests.RequestException(msg)
 
     def _download(self, name: str, url: str, category_path: Path) -> None:
-        """
-        Download a single dictionary file.
-
-        Args:
-            name (str): Name of the file.
-            url (str): URL to download from.
-            category_path (Path): Path to save the file.
-
-        """
         file_path = category_path / name
         if file_path.is_file():
             log.warning("%s already exists, skipping...", file_path)
@@ -267,14 +236,6 @@ class DictSpider:
             raise
 
     def _download_page(self, page_url: str, category_path: Path) -> None:
-        """
-        Process a single category page to find dictionaries.
-
-        Args:
-            page_url (str): URL of the page.
-            category_path (Path): Path to save discovered dictionaries.
-
-        """
         response = self._get_html(page_url)
         for dict_td in BeautifulSoup(response.text, "html.parser").find_all(
             "div", class_="dict_detail_block"
@@ -310,14 +271,6 @@ class DictSpider:
         category: str,
         category_167: bool = False,  # noqa: FBT001, FBT002
     ) -> None:
-        """
-        Process a category to find all its pages.
-
-        Args:
-            category (str): Category index.
-            category_167 (bool): Whether it is a sub-category of 167.
-
-        """
         category_url = "https://pinyin.sogou.com/dict/cate/index/" + category
         response = self._get_html(category_url)
         soup = BeautifulSoup(response.text, "html.parser")
@@ -343,7 +296,6 @@ class DictSpider:
             )
 
     def _download_category_167(self) -> None:
-        """Process special category 167."""
         response = self._get_html(
             "https://pinyin.sogou.com/dict/cate/index/180"
         )
@@ -358,7 +310,6 @@ class DictSpider:
             )
 
     def _download_category_0(self) -> None:
-        """Process uncategorized dictionaries."""
         response = self._get_html(
             "https://pinyin.sogou.com/dict/detail/index/4"
         )
@@ -389,7 +340,6 @@ class DictSpider:
             )
 
     def _download_dicts(self) -> None:
-        """Initialize the dictionary download process."""
         if self.categories is None:
             main_url = "https://pinyin.sogou.com/dict/"
             response = self._get_html(main_url)
@@ -412,7 +362,6 @@ class DictSpider:
                 self._submit(self._download_category, category)
 
     def _report_stats(self) -> None:
-        """Log a summary of download statistics and errors."""
         downloaded = self.stats.get("downloaded", 0)
         skipped = self.stats.get("skipped", 0)
         failed = self.stats.get("failed", 0)

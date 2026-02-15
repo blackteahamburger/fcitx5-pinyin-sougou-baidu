@@ -6,10 +6,6 @@ Raw Sougou pinyin dictionaries are automatically updated and released monthly by
 
 Dictionaries are also automatically built and released monthly for fcitx5 and rime by Github Action.
 
-`Makefile` is modified from [fcitx5-pinyin-zhwiki](https://github.com/felixonmars/fcitx5-pinyin-zhwiki).
-
-**Warning**:  Please check whether some downloaded dictionaries are missing (a notable feature is the file size difference from previous releases).
-
 ## Installation
 
 ### Gentoo
