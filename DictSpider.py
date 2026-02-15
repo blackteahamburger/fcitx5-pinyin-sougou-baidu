@@ -30,7 +30,8 @@ from requests.adapters import HTTPAdapter
 import queue_thread_pool_executor
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable
+    from collections.abc import Callable, Iterable
+    from concurrent.futures import Future
     from types import TracebackType
 
 log = logging.getLogger(__name__)
@@ -55,8 +56,6 @@ class DictSpider:
         """
         Initialize the DictSpider.
 
-        Automatically starts downloading dictionaries upon initialization.
-
         Args:
             categories (Iterable[str] | None):
                 Iterable of category indices to be downloaded.
@@ -70,9 +69,6 @@ class DictSpider:
             headers (dict[str, str] | None): HTTP headers to use for requests.
 
         """
-        concurrent_downloads = (
-            concurrent_downloads or (os.cpu_count() or 1) * 5
-        )
         self.categories = categories
         self.save_path = save_path or Path("sougou_dict")
         self.exclude_list = (
@@ -80,7 +76,7 @@ class DictSpider:
             if exclude_list is not None
             else {"2775", "15946", "176476"}
         )
-        self.max_retries = max_retries or 20
+        self.max_retries = max(0, max_retries or 20)
         self.timeout = timeout or 60
         self.headers = (
             headers
@@ -107,29 +103,30 @@ class DictSpider:
             "skipped": 0,
             "failed": 0,
         }
-        self.failed_downloads: list[str] = []
-        self._session = requests.Session()
-        adapter = HTTPAdapter(
-            pool_connections=concurrent_downloads,
-            pool_maxsize=concurrent_downloads,
+        self._concurrent_downloads = max(
+            1, concurrent_downloads or min(32, (os.cpu_count() or 1) * 5)
         )
-        self._session.mount("https://", adapter)
+        self._thread_local = threading.local()
+        self._sessions: list[requests.Session] = []
         self._executor = queue_thread_pool_executor.QueueThreadPoolExecutor(
-            concurrent_downloads
+            self._concurrent_downloads
         )
         self._lock = threading.Lock()
-
-        self._download_dicts()
+        self._futures: list[Future] = []
+        self._errors: list[tuple[str, Exception]] = []
 
     def __enter__(self) -> Self:
         """
         Enter the runtime context related to this object.
+
+        Automatically starts the download process when entering the context.
 
         Returns:
             Self: The DictSpider instance itself.
 
         """
         self._executor.__enter__()
+        self._download_dicts()
         return self
 
     def __exit__(
@@ -137,7 +134,7 @@ class DictSpider:
         typ: type[BaseException] | None,
         exc: BaseException | None,
         tb: TracebackType | None,
-    ) -> None:
+    ) -> bool | None:
         """
         Exit the runtime context and clean up resources.
 
@@ -146,76 +143,139 @@ class DictSpider:
             exc (BaseException | None): Exception instance, if any.
             tb (TracebackType | None): Traceback, if any.
 
+        Returns:
+            bool | None: The return value from the executor's __exit__ method.
+
         Raises:
-            requests.RequestException: If there are failed downloads.
+            RuntimeError: If any concurrent tasks failed.
 
         """
         try:
-            result = self._executor.__exit__(typ, exc, tb)
+            rv = self._executor.__exit__(typ, exc, tb)
+
+            for future in self._futures:
+                if (exception := future.exception()) is not None:
+                    self._errors.append((str(future), exception))
         finally:
             with contextlib.suppress(Exception):
                 self._report_stats()
             with contextlib.suppress(Exception):
-                self._session.close()
-        if self.failed_downloads:
-            msg = "Some downloads failed, see logs for details."
-            raise requests.RequestException(msg)
-        return result
+                for s in self._sessions:
+                    with contextlib.suppress(Exception):
+                        s.close()
 
-    def _get_html(self, url: str) -> requests.Response | None:
-        for attempt in range(max(1, self.max_retries)):
+        if self._errors:
+            msg = f"Application finished with {len(self._errors)} errors."
+            raise RuntimeError(msg)
+
+        return rv
+
+    def _submit(
+        self, fn: Callable[..., object], /, *args: object, **kwargs: object
+    ) -> None:
+        """
+        Submit a task to the executor and track its future.
+
+        Args:
+            fn (Callable[..., object]): The function to execute.
+            *args (object): Arguments for the function.
+            **kwargs (object): Keyword arguments for the function.
+
+        """
+        future = self._executor.submit(fn, *args, **kwargs)
+        with self._lock:
+            self._futures.append(future)
+
+    def _get_session(self) -> requests.Session:
+        session = getattr(self._thread_local, "session", None)
+        if session is None:
+            session = requests.Session()
+            session.mount(
+                "https://",
+                HTTPAdapter(
+                    pool_connections=self._concurrent_downloads,
+                    pool_maxsize=self._concurrent_downloads,
+                ),
+            )
+            with self._lock:
+                self._sessions.append(session)
+            self._thread_local.session = session
+        return session
+
+    def _get_html(self, url: str) -> requests.Response:
+        """
+        Fetch HTML content from a URL with retries.
+
+        Args:
+            url (str): The URL to fetch.
+
+        Returns:
+            requests.Response: The HTTP response.
+
+        Raises:
+            requests.RequestException: If the request fails after all retries.
+
+        """
+        last_exception: Exception | None = None
+        for _ in range(self.max_retries + 1):
             try:
-                response = self._session.get(
+                response = self._get_session().get(
                     url, headers=self.headers, timeout=self.timeout
                 )
                 response.raise_for_status()
                 if response.content:
                     return response
-                log.warning(
-                    "Downloaded content of %s is empty (attempt %d/%d)",
-                    url,
-                    attempt + 1,
-                    self.max_retries,
-                )
+
+                log.warning("Downloaded content of %s is empty", url)
             except requests.RequestException as exc:
-                log.warning(
-                    "Request failed for %s (attempt %d/%d): %s",
-                    url,
-                    attempt + 1,
-                    self.max_retries,
-                    exc,
-                )
-        msg = (
-            f"Downloaded content of {url} is empty or failed after "
-            f"{self.max_retries} attempts"
-        )
-        with self._lock:
-            self.failed_downloads.append(url)
+                last_exception = exc
+                log.warning("Request failed for %s: %s", url, exc)
+
+        msg = f"Failed to fetch {url}."
         log.error(msg)
-        return None
+        if last_exception:
+            raise last_exception
+        raise requests.RequestException(msg)
 
     def _download(self, name: str, url: str, category_path: Path) -> None:
+        """
+        Download a single dictionary file.
+
+        Args:
+            name (str): Name of the file.
+            url (str): URL to download from.
+            category_path (Path): Path to save the file.
+
+        """
         file_path = category_path / name
-        with self._lock:
-            if file_path.is_file():
-                log.warning("%s already exists, skipping...", file_path)
+        if file_path.is_file():
+            log.warning("%s already exists, skipping...", file_path)
+            with self._lock:
                 self.stats["skipped"] += 1
-                return
-        response = self._get_html(url)
-        if response is None:
+            return
+
+        try:
+            response = self._get_html(url)
+            file_path.write_bytes(response.content)
+            with self._lock:
+                self.stats["downloaded"] += 1
+            log.info("%s downloaded successfully.", name)
+        except Exception:
             with self._lock:
                 self.stats["failed"] += 1
-            log.error("Failed to fetch file URL: %s (will skip %s)", url, name)
-            return
-        file_path.write_bytes(response.content)
-        with self._lock:
-            self.stats["downloaded"] += 1
-        log.info("%s downloaded successfully.", name)
+            log.exception("Failed to download %s", name)
+            raise
 
     def _download_page(self, page_url: str, category_path: Path) -> None:
+        """
+        Process a single category page to find dictionaries.
+
+        Args:
+            page_url (str): URL of the page.
+            category_path (Path): Path to save discovered dictionaries.
+
+        """
         response = self._get_html(page_url)
-        if response is None:
-            return
         for dict_td in BeautifulSoup(response.text, "html.parser").find_all(
             "div", class_="dict_detail_block"
         ):
@@ -226,10 +286,9 @@ class DictSpider:
                     ).a
                 )["href"].rpartition("/")[-1]
             ) not in self.exclude_list:
-                self._executor.submit(
+                self._submit(
                     self._download,
                     (
-                        # For dictionaries like 天线行业/BSA_67002
                         dict_td_title.string
                         .replace("/", "-")
                         .replace(",", "-")
@@ -237,7 +296,7 @@ class DictSpider:
                         .replace("\\", "-")
                         .replace("'", "-")
                         if dict_td_title.string
-                        else ""  # For dictionaries without a name
+                        else ""
                     )
                     + "_"
                     + dict_td_id
@@ -251,10 +310,16 @@ class DictSpider:
         category: str,
         category_167: bool = False,  # noqa: FBT001, FBT002
     ) -> None:
+        """
+        Process a category to find all its pages.
+
+        Args:
+            category (str): Category index.
+            category_167 (bool): Whether it is a sub-category of 167.
+
+        """
         category_url = "https://pinyin.sogou.com/dict/cate/index/" + category
         response = self._get_html(category_url)
-        if response is None:
-            return
         soup = BeautifulSoup(response.text, "html.parser")
         if not category_167:
             category_path = self.save_path / (
@@ -271,39 +336,35 @@ class DictSpider:
             else int(pages[-2].string) + 1
         )
         for page in range(1, page_n):
-            self._executor.submit(
+            self._submit(
                 self._download_page,
                 category_url + "/default/" + str(page),
                 category_path,
             )
 
     def _download_category_167(self) -> None:
-        """For category 167 that does not have a page."""
+        """Process special category 167."""
         response = self._get_html(
             "https://pinyin.sogou.com/dict/cate/index/180"
         )
-        if response is None:
-            return
         category_path = self.save_path / "城市信息大全_167"
         category_path.mkdir(parents=True, exist_ok=True)
         soup = BeautifulSoup(response.text, "html.parser")
         for category_td in soup.find_all("div", class_="citylistcate"):
-            self._executor.submit(
+            self._submit(
                 self._download_category,
                 category_td.a["href"].rpartition("/")[-1],
                 True,  # noqa: FBT003
             )
 
     def _download_category_0(self) -> None:
-        """For dictionaries that do not belong to any categories."""
+        """Process uncategorized dictionaries."""
         response = self._get_html(
             "https://pinyin.sogou.com/dict/detail/index/4"
         )
-        if response is None:
-            return
         category_path = self.save_path / "未分类_0"
         category_path.mkdir(parents=True, exist_ok=True)
-        self._executor.submit(
+        self._submit(
             self._download,
             "网络流行新词【官方推荐】_4.scel",
             "https://pinyin.sogou.com/d/dict/download_cell.php?id=4&name=网络流行新词【官方推荐】",
@@ -312,7 +373,7 @@ class DictSpider:
         for dict_td in BeautifulSoup(response.text, "html.parser").find_all(
             "div", class_="rcmd_dict"
         ):
-            self._executor.submit(
+            self._submit(
                 self._download,
                 (
                     dict_td_title := dict_td.find(
@@ -328,11 +389,10 @@ class DictSpider:
             )
 
     def _download_dicts(self) -> None:
+        """Initialize the dictionary download process."""
         if self.categories is None:
             main_url = "https://pinyin.sogou.com/dict/"
             response = self._get_html(main_url)
-            if response is None:
-                return
             soup = BeautifulSoup(response.text, "html.parser")
             category_iter = (
                 category.a["href"].partition("?")[0].rpartition("/")[-1]
@@ -345,28 +405,31 @@ class DictSpider:
             iterable = self.categories
         for category in iterable:
             if category == "0":
-                self._executor.submit(self._download_category_0)
+                self._submit(self._download_category_0)
             elif category == "167":
-                self._executor.submit(self._download_category_167)
+                self._submit(self._download_category_167)
             else:
-                self._executor.submit(self._download_category, category)
+                self._submit(self._download_category, category)
 
     def _report_stats(self) -> None:
-        """Log a summary of download statistics."""
-        with self._lock:
-            downloaded = self.stats.get("downloaded", 0)
-            skipped = self.stats.get("skipped", 0)
-            failed = self.stats.get("failed", 0)
+        """Log a summary of download statistics and errors."""
+        downloaded = self.stats.get("downloaded", 0)
+        skipped = self.stats.get("skipped", 0)
+        failed = self.stats.get("failed", 0)
         log.info("")
         log.info("---- Dictionary Download Summary ----")
         log.info("downloaded=%d", downloaded)
         log.info("skipped=%d", skipped)
         log.info("failed=%d", failed)
-        if self.failed_downloads:
+
+        if self._errors:
             log.error("")
-            log.error("---- Failed Downloads Summary ----")
-            for url in self.failed_downloads:
-                log.error(url)
+            log.error(
+                "---- Detailed Exception Summary (%d errors) ----",
+                len(self._errors),
+            )
+            for i, (_task, exc) in enumerate(self._errors, 1):
+                log.error("[%d] Task failed: %s", i, exc)
 
 
 if __name__ == "__main__":
@@ -406,7 +469,7 @@ if __name__ == "__main__":
         "-j",
         type=int,
         help="Set the number of parallel downloads.\n"
-        "Default: (os.cpu_count() or 1) * 5",
+        "Default: min(32, (os.cpu_count() or 1) * 5)",
         metavar="N",
     )
     parser.add_argument(
@@ -424,13 +487,6 @@ if __name__ == "__main__":
         metavar="SEC",
     )
     parser.add_argument(
-        "--verbose",
-        "-v",
-        action=argparse.BooleanOptionalAction,
-        default=False,
-        help="Verbose output.\nDefault: False",
-    )
-    parser.add_argument(
         "--debug",
         action=argparse.BooleanOptionalAction,
         default=False,
@@ -439,11 +495,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
     logging.basicConfig(
         format="%(levelname)s:%(message)s",
-        level=logging.DEBUG
-        if args.debug
-        else logging.INFO
-        if args.verbose
-        else logging.WARNING,
+        level=logging.DEBUG if args.debug else logging.INFO,
     )
     with DictSpider(
         args.categories,
