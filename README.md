@@ -1,6 +1,6 @@
 Sougou Pinyin dictionary for Fcitx5 and RIME.
 
-**Note**: You may check [baidu](https://github.com/blackteahamburger/fcitx5-pinyin-sougou-baidu/tree/baidu) branch for deprecated Baidu pinyin dictionary support. Check [here](https://github.com/studyzy/imewlconverter/issues/381) for reason.
+**Note: You may check [baidu](https://github.com/blackteahamburger/fcitx5-pinyin-sougou-dict/tree/baidu) branch for deprecated Baidu pinyin dictionary support. Check [here](https://github.com/studyzy/imewlconverter/issues/381) for reason.**
 
 Raw Sougou pinyin dictionaries are automatically updated and released monthly by Github Action with `DictSpider.py` (modified from [Sougou_dict_spider](https://github.com/StuPeter/Sougou_dict_spider)).
 
