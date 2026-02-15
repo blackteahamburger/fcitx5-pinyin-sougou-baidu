@@ -1,48 +1,48 @@
-preview = true
-unsafe-fixes = true
-target-version = "py313"
-line-length = 79
-builtins = ["_"]
+builtins       = ["_"]
+line-length    = 79
+preview        = true
+target-version = "py314"
+unsafe-fixes   = true
 
 [analyze]
-preview = true
+    preview = true
 
 [format]
-preview = true
-docstring-code-format = true
-line-ending = "lf"
-skip-magic-trailing-comma = true
+    docstring-code-format     = true
+    line-ending               = "lf"
+    preview                   = true
+    skip-magic-trailing-comma = true
 
 [lint]
-future-annotations = true
-select = ["ALL"]
-typing-extensions = false
-unfixable = ["T201"]
-ignore = [
-    "D206",
-    "E114",
-    "E111",
-    "W191",
-    "Q003",
-    "Q002",
-    "Q000",
-    "Q001",
-    "COM812",
-    "D208",
-    "E117",
-    "COM819",
-    "D300",
-    "D207",
-    "Q004",
-    "S404",
-    "S602",
-    "S603",
-    "D203",
-    "D212",
-    "PLR0913",
-    "PLR0917",
-    "CPY001",
-]
+    future-annotations = true
+    ignore = [
+        "COM812",
+        "COM819",
+        "CPY001",
+        "D203",
+        "D206",
+        "D207",
+        "D208",
+        "D212",
+        "D300",
+        "E111",
+        "E114",
+        "E117",
+        "PLR0913",
+        "PLR0917",
+        "Q000",
+        "Q001",
+        "Q002",
+        "Q003",
+        "Q004",
+        "S404",
+        "S602",
+        "S603",
+        "W191",
+    ]
+    select = ["ALL"]
+    typing-extensions = false
+    unfixable = ["T201"]
 
-[lint.isort]
-split-on-trailing-comma = false
+    [lint.isort]
+        split-on-trailing-comma = false
