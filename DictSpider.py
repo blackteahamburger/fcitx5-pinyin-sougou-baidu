@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Final, Self, cast
 
 import requests
+import tenacity
 from bs4 import BeautifulSoup
 
 import queue_thread_pool_executor
@@ -193,26 +194,31 @@ class DictSpider:
         return session
 
     def _get_html(self, url: str) -> requests.Response:
-        last_exception: Exception | None = None
-        for _ in range(self.max_retries + 1):
-            try:
-                response = self._get_session().get(
-                    url, headers=self.headers, timeout=self.timeout
-                )
-                response.raise_for_status()
-                if response.content:
-                    return response
 
-                log.warning("Downloaded content of %s is empty", url)
-            except requests.RequestException as exc:
-                last_exception = exc
-                log.warning("Request failed for %s: %s", url, exc)
+        def _attempt() -> requests.Response:
+            response = self._get_session().get(
+                url, headers=self.headers, timeout=self.timeout
+            )
+            response.raise_for_status()
+            if not response.content:
+                msg = f"Empty content for {url}"
+                raise requests.RequestException(msg)
+            return response
 
-        msg = f"Failed to fetch {url}."
-        log.error(msg)
-        if last_exception:
-            raise last_exception
-        raise requests.RequestException(msg)
+        retry_decorator = tenacity.retry(
+            reraise=True,
+            stop=tenacity.stop_after_attempt(self.max_retries + 1),
+            wait=tenacity.wait_exponential(multiplier=1, max=60),
+            retry=tenacity.retry_if_exception_type(requests.RequestException),
+            before_sleep=tenacity.before_sleep_log(log, logging.WARNING),
+        )
+
+        try:
+            return retry_decorator(_attempt)()
+        except Exception:
+            msg = f"Failed to fetch {url}."
+            log.exception(msg)
+            raise
 
     def _download(self, name: str, url: str, category_path: Path) -> None:
         file_path = category_path / name

@@ -24,7 +24,7 @@ jobs:
           python-version: "3.14"
 
       - name: Prepare Environment for Fetch
-        run: pip install beautifulsoup4 requests
+        run: pip install beautifulsoup4 requests tenacity
 
       - name: Fetch
         run: python DictSpider.py
