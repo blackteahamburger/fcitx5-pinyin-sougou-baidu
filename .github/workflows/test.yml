@@ -1,0 +1,45 @@
+name: Build dictionary for Fcitx5 and RIME
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: "9.0.x"
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+
+      - name: Prepare Environment for Fetch
+        run: pip install beautifulsoup4 requests
+
+      - name: Fetch
+        run: python DictSpider.py
+
+      - name: Prepare Environment for Build
+        run: |
+          sudo apt install libime-bin
+
+          wget https://github.com/studyzy/imewlconverter/releases/download/v3.3.1/imewlconverter_linux-x64.tar.gz
+          tar -zxf imewlconverter_linux-x64.tar.gz
+          sudo chmod +x publish/linux-x64/ImeWlConverterCmd
+
+          echo "${GITHUB_WORKSPACE}/publish/linux-x64" >> "$GITHUB_PATH"
+
+      - name: Build
+        run: |
+          make build_fcitx build_rime
+          tar -zcf sougou_dict.tar.gz sougou_dict
