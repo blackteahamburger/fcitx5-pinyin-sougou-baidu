@@ -21,11 +21,10 @@ import logging
 import os
 import threading
 from pathlib import Path
-from typing import TYPE_CHECKING, Final, Self
+from typing import TYPE_CHECKING, Final, Self, cast
 
 import requests
 from bs4 import BeautifulSoup
-from requests.adapters import HTTPAdapter
 
 import queue_thread_pool_executor
 
@@ -33,6 +32,8 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Iterable
     from concurrent.futures import Future
     from types import TracebackType
+
+    from bs4 import Tag
 
 log = logging.getLogger(__name__)
 log.addHandler(logging.NullHandler())
@@ -76,8 +77,8 @@ class DictSpider:
             if exclude_list is not None
             else {"2775", "15946", "176476"}
         )
-        self.max_retries = max(0, max_retries or 20)
-        self.timeout = timeout or 60
+        self.max_retries = 20 if max_retries is None else max(0, max_retries)
+        self.timeout = 60 if timeout is None else timeout
         self.headers = (
             headers
             if headers is not None
@@ -98,22 +99,18 @@ class DictSpider:
                 "Connection": "keep-alive",
             }
         )
-        self.stats: dict[str, int] = {
+        self._stats: dict[str, int] = {
             "downloaded": 0,
             "skipped": 0,
             "failed": 0,
         }
-        self._concurrent_downloads = max(
-            1, concurrent_downloads or min(32, (os.cpu_count() or 1) * 5)
-        )
         self._thread_local = threading.local()
         self._sessions: list[requests.Session] = []
         self._executor = queue_thread_pool_executor.QueueThreadPoolExecutor(
-            self._concurrent_downloads
+            max(1, concurrent_downloads or min(32, (os.cpu_count() or 1) * 5))
         )
         self._lock = threading.Lock()
-        self._futures: list[Future] = []
-        self._errors: list[tuple[str, Exception]] = []
+        self._futures: list[Future[object]] = []
 
     def __enter__(self) -> Self:
         """
@@ -147,25 +144,22 @@ class DictSpider:
             bool | None: The return value from the executor's __exit__ method.
 
         Raises:
-            RuntimeError: If any concurrent tasks failed.
+            RuntimeError: If there were any failures during the download.
 
         """
         try:
             rv = self._executor.__exit__(typ, exc, tb)
-
-            for future in self._futures:
-                if (exception := future.exception()) is not None:
-                    self._errors.append((str(future), exception))
         finally:
+            failures = 0
             with contextlib.suppress(Exception):
-                self._report_stats()
+                failures = self._report_stats()
             with contextlib.suppress(Exception):
                 for s in self._sessions:
                     with contextlib.suppress(Exception):
                         s.close()
 
-        if self._errors:
-            msg = f"Application finished with {len(self._errors)} errors."
+        if failures:
+            msg = f"Application finished with {failures} failures."
             raise RuntimeError(msg)
 
         return rv
@@ -173,21 +167,13 @@ class DictSpider:
     def _submit(
         self, fn: Callable[..., object], /, *args: object, **kwargs: object
     ) -> None:
-        future = self._executor.submit(fn, *args, **kwargs)
         with self._lock:
-            self._futures.append(future)
+            self._futures.append(self._executor.submit(fn, *args, **kwargs))
 
     def _get_session(self) -> requests.Session:
         session = getattr(self._thread_local, "session", None)
         if session is None:
             session = requests.Session()
-            session.mount(
-                "https://",
-                HTTPAdapter(
-                    pool_connections=self._concurrent_downloads,
-                    pool_maxsize=self._concurrent_downloads,
-                ),
-            )
             with self._lock:
                 self._sessions.append(session)
             self._thread_local.session = session
@@ -220,51 +206,61 @@ class DictSpider:
         if file_path.is_file():
             log.warning("%s already exists, skipping...", file_path)
             with self._lock:
-                self.stats["skipped"] += 1
+                self._stats["skipped"] += 1
             return
 
         try:
             response = self._get_html(url)
             file_path.write_bytes(response.content)
             with self._lock:
-                self.stats["downloaded"] += 1
+                self._stats["downloaded"] += 1
             log.info("%s downloaded successfully.", name)
         except Exception:
             with self._lock:
-                self.stats["failed"] += 1
+                self._stats["failed"] += 1
             log.exception("Failed to download %s", name)
             raise
 
     def _download_page(self, page_url: str, category_path: Path) -> None:
         response = self._get_html(page_url)
-        for dict_td in BeautifulSoup(response.text, "html.parser").find_all(
-            "div", class_="dict_detail_block"
-        ):
-            if (
-                dict_td_id := (
-                    dict_td_title := dict_td.find(
-                        "div", class_="detail_title"
-                    ).a
-                )["href"].rpartition("/")[-1]
-            ) not in self.exclude_list:
-                self._submit(
-                    self._download,
-                    (
-                        dict_td_title.string
-                        .replace("/", "-")
-                        .replace(",", "-")
-                        .replace("|", "-")
-                        .replace("\\", "-")
-                        .replace("'", "-")
-                        if dict_td_title.string
-                        else ""
-                    )
-                    + "_"
-                    + dict_td_id
-                    + ".scel",
-                    dict_td.find("div", class_="dict_dl_btn").a["href"],
-                    category_path,
+        soup = BeautifulSoup(response.text, "html.parser")
+        for dict_td in soup.select("div.dict_detail_block"):
+            title_div = dict_td.select_one("div.detail_title")
+            dict_td_title = (
+                title_div.select_one("a") if title_div is not None else None
+            )
+            href = (
+                dict_td_title.get("href")
+                if dict_td_title is not None
+                else None
+            )
+            href_str = str(href) if href else ""
+            dict_td_id = href_str.rpartition("/")[-1] if href_str else ""
+            if dict_td_id and dict_td_id not in self.exclude_list:
+                # build filename safely
+                raw_title = (
+                    dict_td_title.string if dict_td_title is not None else ""
                 )
+                if raw_title is None:
+                    raw_title = ""
+                safe_title = (
+                    raw_title
+                    .replace("/", "-")
+                    .replace(",", "-")
+                    .replace("|", "-")
+                    .replace("\\", "-")
+                    .replace("'", "-")
+                )
+                dl_div = dict_td.select_one("div.dict_dl_btn")
+                dl_a = dl_div.select_one("a") if dl_div is not None else None
+                dl_href = dl_a.get("href") if dl_a is not None else None
+                if dl_href:
+                    self._submit(
+                        self._download,
+                        safe_title + "_" + dict_td_id + ".scel",
+                        dl_href,
+                        category_path,
+                    )
 
     def _download_category(
         self,
@@ -275,19 +271,30 @@ class DictSpider:
         response = self._get_html(category_url)
         soup = BeautifulSoup(response.text, "html.parser")
         if not category_167:
+            title_tag = soup.select_one("title")
+            title_text = (
+                title_tag.get_text(strip=True) if title_tag is not None else ""
+            )
             category_path = self.save_path / (
-                soup.find("title").string.partition("_")[0] + "_" + category
+                title_text.partition("_")[0] + "_" + category
             )
             category_path.mkdir(parents=True, exist_ok=True)
         else:
             category_path = self.save_path / "城市信息大全_167"
-        page_n = (
-            DictSpider.MIN_PAGE_CATEGORY
-            if (page_list := soup.find("div", id="dict_page_list")) is None
-            or len(pages := page_list.find_all("a"))
-            < DictSpider.MIN_PAGE_CATEGORY
-            else int(pages[-2].string) + 1
-        )
+        page_list = soup.select_one("div#dict_page_list")
+        if page_list is None:
+            page_n = DictSpider.MIN_PAGE_CATEGORY
+        else:
+            pages = page_list.select("a")
+            if len(pages) < DictSpider.MIN_PAGE_CATEGORY:
+                page_n = DictSpider.MIN_PAGE_CATEGORY
+            else:
+                second_last = pages[-2]
+                page_text = second_last.get_text(strip=True)
+                try:
+                    page_n = int(page_text) + 1
+                except (TypeError, ValueError):
+                    page_n = DictSpider.MIN_PAGE_CATEGORY
         for page in range(1, page_n):
             self._submit(
                 self._download_page,
@@ -302,12 +309,16 @@ class DictSpider:
         category_path = self.save_path / "城市信息大全_167"
         category_path.mkdir(parents=True, exist_ok=True)
         soup = BeautifulSoup(response.text, "html.parser")
-        for category_td in soup.find_all("div", class_="citylistcate"):
-            self._submit(
-                self._download_category,
-                category_td.a["href"].rpartition("/")[-1],
-                True,  # noqa: FBT003
-            )
+        for category_td in soup.select("div.citylistcate"):
+            a_tag = category_td.select_one("a")
+            href = a_tag.get("href") if a_tag is not None else None
+            if href:
+                cat_id = str(href).rpartition("/")[-1]
+                self._submit(
+                    self._download_category,
+                    cat_id,
+                    True,  # noqa: FBT003
+                )
 
     def _download_category_0(self) -> None:
         response = self._get_html(
@@ -321,35 +332,59 @@ class DictSpider:
             "https://pinyin.sogou.com/d/dict/download_cell.php?id=4&name=网络流行新词【官方推荐】",
             category_path,
         )
-        for dict_td in BeautifulSoup(response.text, "html.parser").find_all(
-            "div", class_="rcmd_dict"
-        ):
-            self._submit(
-                self._download,
-                (
-                    dict_td_title := dict_td.find(
-                        "div", class_="rcmd_dict_title"
-                    ).a
-                ).string
-                + "_"
-                + dict_td_title["href"].rpartition("/")[-1]
-                + ".scel",
-                "https:"
-                + dict_td.find("div", class_="rcmd_dict_dl_btn").a["href"],
-                category_path,
+        soup = BeautifulSoup(response.text, "html.parser")
+        for dict_td in soup.find_all("div", attrs={"class": "rcmd_dict"}):
+            dict_td = cast("Tag", dict_td)
+            title_div = cast(
+                "Tag | None",
+                dict_td.find("div", attrs={"class": "rcmd_dict_title"}),
             )
+            dict_td_title = (
+                cast("Tag", title_div.find("a"))
+                if title_div is not None
+                else None
+            )
+            title_text = (
+                dict_td_title.string if dict_td_title is not None else ""
+            )
+            href = (
+                dict_td_title.get("href")
+                if dict_td_title is not None
+                else None
+            )
+            dl_div = dict_td.select_one("div.rcmd_dict_dl_btn")
+            dl_a = dl_div.select_one("a") if dl_div is not None else None
+            dl_href = dl_a.get("href") if dl_a is not None else None
+            if href and dl_href:
+                href_str = str(href)
+                filename = (
+                    (title_text or "")
+                    + "_"
+                    + href_str.rpartition("/")[-1]
+                    + ".scel"
+                )
+                dl_href_str = str(dl_href)
+                self._submit(
+                    self._download,
+                    filename,
+                    "https:" + dl_href_str,
+                    category_path,
+                )
 
     def _download_dicts(self) -> None:
         if self.categories is None:
             main_url = "https://pinyin.sogou.com/dict/"
             response = self._get_html(main_url)
             soup = BeautifulSoup(response.text, "html.parser")
-            category_iter = (
-                category.a["href"].partition("?")[0].rpartition("/")[-1]
-                for category in soup.find_all(
-                    "div", class_="dict_category_list_title"
-                )
-            )
+
+            def _iter_categories() -> Iterable[str]:
+                for category in soup.select("div.dict_category_list_title"):
+                    a_tag = category.select_one("a")
+                    href = a_tag.get("href") if a_tag is not None else ""
+                    href_str = str(href)
+                    yield href_str.partition("?")[0].rpartition("/")[-1]
+
+            category_iter = _iter_categories()
             iterable = itertools.chain(["0"], category_iter)
         else:
             iterable = self.categories
@@ -361,24 +396,27 @@ class DictSpider:
             else:
                 self._submit(self._download_category, category)
 
-    def _report_stats(self) -> None:
-        downloaded = self.stats.get("downloaded", 0)
-        skipped = self.stats.get("skipped", 0)
-        failed = self.stats.get("failed", 0)
+    def _report_stats(self) -> int:
+        downloaded = self._stats.get("downloaded", 0)
+        skipped = self._stats.get("skipped", 0)
+        failed = self._stats.get("failed", 0)
         log.info("")
         log.info("---- Dictionary Download Summary ----")
         log.info("downloaded=%d", downloaded)
         log.info("skipped=%d", skipped)
         log.info("failed=%d", failed)
 
-        if self._errors:
-            log.error("")
-            log.error(
-                "---- Detailed Exception Summary (%d errors) ----",
-                len(self._errors),
-            )
-            for i, (_task, exc) in enumerate(self._errors, 1):
-                log.error("[%d] Task failed: %s", i, exc)
+        log.info("")
+        log.info("---- Detailed Exception Summary ----")
+        failures = 0
+        for future in self._futures:
+            exception = future.exception()
+            if exception is not None:
+                failures += 1
+                log.error("[%d] %s", failures, exception)
+        if not failures:
+            log.info("No exceptions occurred during the download process.")
+        return failures
 
 
 if __name__ == "__main__":

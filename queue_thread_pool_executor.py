@@ -8,10 +8,13 @@ from __future__ import annotations
 from concurrent.futures import Executor, Future
 from queue import Empty, Queue
 from threading import Thread
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, ParamSpec, TypeVar
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+
+    P = ParamSpec("P")
+    T = TypeVar("T")
 
 
 class QueueThreadPoolExecutor(Executor):
@@ -27,7 +30,12 @@ class QueueThreadPoolExecutor(Executor):
         """
         self._max_workers = max_workers
         self._task_queue: Queue[
-            tuple[Callable[..., object], tuple[object, ...], dict, Future]
+            tuple[
+                Callable[..., Any],
+                tuple[Any, ...],
+                dict[str, object],
+                Future[Any],
+            ]
             | None
         ] = Queue()
         self._shutting_down = False
@@ -79,18 +87,18 @@ class QueueThreadPoolExecutor(Executor):
         self._terminate_threads()
 
     def submit(
-        self, fn: Callable[..., object], /, *args: object, **kwargs: object
-    ) -> Future:
+        self, fn: Callable[P, T], /, *args: P.args, **kwargs: P.kwargs
+    ) -> Future[T]:
         """
         Submit a task to the thread pool executor.
 
         Args:
-            fn (Callable[..., object]): The function to execute.
-            *args (object): Arguments to pass to the function.
-            **kwargs (object): Keyword arguments to pass to the function.
+            fn (Callable[P, T]): The function to execute.
+            *args (P.args): Arguments to pass to the function.
+            **kwargs (P.kwargs): Keyword arguments to pass to the function.
 
         Returns:
-            Future: A Future representing the execution of the task.
+            Future[T]: A Future representing the execution of the task.
 
         Raises:
             RuntimeError: If the executor is shut down. Note that this
@@ -103,7 +111,7 @@ class QueueThreadPoolExecutor(Executor):
             msg = "cannot schedule new futures after shutdown"
             raise RuntimeError(msg)
 
-        future: Future = Future()
+        future: Future[T] = Future()
         self._task_queue.put((fn, args, kwargs, future))
         return future
 

@@ -1,7 +1,7 @@
 builtins       = ["_"]
 line-length    = 79
 preview        = true
-target-version = "py314"
+target-version = "py313"
 unsafe-fixes   = true
 
 [analyze]
