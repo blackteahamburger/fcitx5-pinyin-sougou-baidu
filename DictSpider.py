@@ -236,8 +236,7 @@ class DictSpider:
 
     @classmethod
     def _sanitize_filename_part(cls, raw: str) -> str:
-        safe = raw.translate(cls._FILENAME_REPLACEMENTS).strip()
-        return safe or "untitled"
+        return raw.translate(cls._FILENAME_REPLACEMENTS).strip()
 
     def _download_page(self, page_url: str, category_path: Path) -> None:
         response = self._get_html(page_url)
