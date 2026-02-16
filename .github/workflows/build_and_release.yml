@@ -26,7 +26,7 @@ jobs:
         run: pip install beautifulsoup4 requests
 
       - name: Fetch
-        run: python DictSpider.py -v
+        run: python DictSpider.py
 
       - name: Prepare Environment for Build
         run: |
