@@ -1,0 +1,30 @@
+name: Monthly release
+
+on:
+  schedule:
+    - cron: "30 23 19 * *"
+  workflow_dispatch:
+
+jobs:
+  build:
+    uses: ./.github/workflows/build.yml
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download artifact
+        uses: actions/download-artifact@v7
+
+      - name: Get date
+        id: date
+        run: echo "date=$(date +%Y%m%d)" >> "$GITHUB_OUTPUT"
+
+      - name: Release
+        uses: ncipollo/release-action@v1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          artifacts: "sougou.dict,sougou.dict.yaml,sougou_dict.tar.gz"
+          commit: ${{ github.sha }}
+          tag: ${{ steps.date.outputs.date }}
+          allowUpdates: true

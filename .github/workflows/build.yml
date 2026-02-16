@@ -1,10 +1,11 @@
-name: Build dictionary for Fcitx5 and RIME
+name: Build dictionary
 
 on:
   push:
     branches: ["main"]
   pull_request:
     branches: ["main"]
+  workflow_call:
 
 jobs:
   build:
@@ -43,3 +44,11 @@ jobs:
         run: |
           make build_fcitx build_rime
           tar -zcf sougou_dict.tar.gz sougou_dict
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v6
+        with:
+          path: |
+            sougou_dict.tar.gz
+            sougou.dict
+            sougou.dict.yaml
