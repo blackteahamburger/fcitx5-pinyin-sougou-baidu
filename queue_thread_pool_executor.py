@@ -42,12 +42,13 @@ class QueueThreadPoolExecutor(Executor):
         for _ in range(self._max_workers):
             Thread(target=self._executor, daemon=True).start()
 
-    def _terminate_threads(self) -> None:
+    def _terminate_threads(self, wait: bool = True) -> None:  # noqa: FBT001, FBT002
         self._shutting_down = True
 
         for _ in range(self._max_workers):
             self._task_queue.put(None)
-        self._task_queue.join()
+        if wait:
+            self._task_queue.join()
 
     def shutdown(
         self,
@@ -84,7 +85,7 @@ class QueueThreadPoolExecutor(Executor):
         if wait:
             self._task_queue.join()
 
-        self._terminate_threads()
+        self._terminate_threads(wait=wait)
 
     def submit(
         self, fn: Callable[P, T], /, *args: P.args, **kwargs: P.kwargs
