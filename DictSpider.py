@@ -171,7 +171,7 @@ class DictSpider:
                     with contextlib.suppress(Exception):
                         s.close()
 
-        if failures:
+        if typ is None and failures:
             msg = f"Application finished with {failures} failures."
             raise RuntimeError(msg)
 
