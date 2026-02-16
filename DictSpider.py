@@ -43,6 +43,19 @@ class DictSpider:
     """A spider for downloading Sougou dictionaries."""
 
     MIN_PAGE_CATEGORY: Final = 2
+    _FILENAME_REPLACEMENTS: Final = str.maketrans({
+        "/": "-",
+        "\\": "-",
+        ":": "-",
+        "*": "-",
+        "?": "-",
+        '"': "-",
+        "<": "-",
+        ">": "-",
+        "|": "-",
+        "'": "-",
+        ",": "-",
+    })
 
     def __init__(
         self,
@@ -221,6 +234,11 @@ class DictSpider:
             log.exception("Failed to download %s", name)
             raise
 
+    @classmethod
+    def _sanitize_filename_part(cls, raw: str) -> str:
+        safe = raw.translate(cls._FILENAME_REPLACEMENTS).strip()
+        return safe or "untitled"
+
     def _download_page(self, page_url: str, category_path: Path) -> None:
         response = self._get_html(page_url)
         soup = BeautifulSoup(response.text, "html.parser")
@@ -243,14 +261,7 @@ class DictSpider:
                 )
                 if raw_title is None:
                     raw_title = ""
-                safe_title = (
-                    raw_title
-                    .replace("/", "-")
-                    .replace(",", "-")
-                    .replace("|", "-")
-                    .replace("\\", "-")
-                    .replace("'", "-")
-                )
+                safe_title = self._sanitize_filename_part(raw_title)
                 dl_div = dict_td.select_one("div.dict_dl_btn")
                 dl_a = dl_div.select_one("a") if dl_div is not None else None
                 dl_href = dl_a.get("href") if dl_a is not None else None
@@ -358,7 +369,7 @@ class DictSpider:
             if href and dl_href:
                 href_str = str(href)
                 filename = (
-                    (title_text or "")
+                    self._sanitize_filename_part(title_text or "")
                     + "_"
                     + href_str.rpartition("/")[-1]
                     + ".scel"
