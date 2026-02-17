@@ -30,12 +30,7 @@ class QueueThreadPoolExecutor(Executor):
         """
         self._max_workers = max_workers
         self._task_queue: Queue[
-            tuple[
-                Callable[..., Any],
-                tuple[Any, ...],
-                dict[str, object],
-                Future[Any],
-            ]
+            tuple[Callable[..., Any], tuple[Any, ...], dict[str, object], Future[Any]]
             | None
         ] = Queue()
         self._shutting_down = False

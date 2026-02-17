@@ -87,22 +87,16 @@ class DictSpider:
                     "Gecko/20100101 Firefox/60.0"
                 ),
                 "Accept": (
-                    "text/html,application/xhtml+xml,application/xml;q=0.9,"
-                    "*/*;q=0.8"
+                    "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
                 ),
                 "Accept-Language": (
-                    "zh-CN,zh;q=0.8,zh-TW;q=0.7,zh-HK;q=0.5,"
-                    "en-US;q=0.3,en;q=0.2"
+                    "zh-CN,zh;q=0.8,zh-TW;q=0.7,zh-HK;q=0.5,en-US;q=0.3,en;q=0.2"
                 ),
                 "Accept-Encoding": "gzip, deflate",
                 "Connection": "keep-alive",
             }
         )
-        self._stats: dict[str, int] = {
-            "downloaded": 0,
-            "skipped": 0,
-            "failed": 0,
-        }
+        self._stats: dict[str, int] = {"downloaded": 0, "skipped": 0, "failed": 0}
         self._thread_local = threading.local()
         self._sessions: list[requests.Session] = []
         self._executor = queue_thread_pool_executor.QueueThreadPoolExecutor(
@@ -195,9 +189,7 @@ class DictSpider:
                 reraise=True,
                 stop=tenacity.stop_after_attempt(self.max_retries + 1),
                 wait=tenacity.wait_exponential(multiplier=1, max=60),
-                retry=tenacity.retry_if_exception_type(
-                    requests.RequestException
-                ),
+                retry=tenacity.retry_if_exception_type(requests.RequestException),
                 before_sleep=tenacity.before_sleep_log(log, logging.WARNING),
             )(_attempt)()
         except Exception:
@@ -234,13 +226,9 @@ class DictSpider:
             self._get_html(page_url).text, "html.parser"
         ).select("div.dict_detail_block"):
             title_div = dict_td.select_one("div.detail_title")
-            dict_td_title = (
-                title_div.select_one("a") if title_div is not None else None
-            )
+            dict_td_title = title_div.select_one("a") if title_div is not None else None
             dict_td_id = str(
-                dict_td_title.get("href")
-                if dict_td_title is not None
-                else None
+                dict_td_title.get("href") if dict_td_title is not None else None
             ).rpartition("/")[-1]
             if dict_td_id not in self.exclude_list:
                 dl_div = dict_td.select_one("div.dict_dl_btn")
@@ -248,11 +236,7 @@ class DictSpider:
                 self._submit(
                     self._download,
                     self._sanitize(
-                        (
-                            dict_td_title.string
-                            if dict_td_title is not None
-                            else ""
-                        )
+                        (dict_td_title.string if dict_td_title is not None else "")
                         or ""
                     )
                     + "_"
@@ -271,9 +255,7 @@ class DictSpider:
         soup = BeautifulSoup(self._get_html(category_url).text, "html.parser")
         if not category_167:
             title_tag = soup.select_one("title")
-            title_text = (
-                title_tag.get_text(strip=True) if title_tag is not None else ""
-            )
+            title_text = title_tag.get_text(strip=True) if title_tag is not None else ""
             category_path = self.save_path / (
                 title_text.partition("_")[0] + "_" + category
             )
@@ -301,29 +283,23 @@ class DictSpider:
 
     def _download_category_167(self) -> None:
         soup = BeautifulSoup(
-            self._get_html(
-                "https://pinyin.sogou.com/dict/cate/index/180"
-            ).text,
+            self._get_html("https://pinyin.sogou.com/dict/cate/index/180").text,
             "html.parser",
         )
-        (self.save_path / "城市信息大全_167").mkdir(
-            parents=True, exist_ok=True
-        )
+        (self.save_path / "城市信息大全_167").mkdir(parents=True, exist_ok=True)
         for category_td in soup.select("div.citylistcate"):
             a_tag = category_td.select_one("a")
             self._submit(
                 self._download_category,
-                str(
-                    a_tag.get("href") if a_tag is not None else None
-                ).rpartition("/")[-1],
+                str(a_tag.get("href") if a_tag is not None else None).rpartition("/")[
+                    -1
+                ],
                 True,  # noqa: FBT003
             )
 
     def _download_category_0(self) -> None:
         soup = BeautifulSoup(
-            self._get_html(
-                "https://pinyin.sogou.com/dict/detail/index/4"
-            ).text,
+            self._get_html("https://pinyin.sogou.com/dict/detail/index/4").text,
             "html.parser",
         )
         category_path = self.save_path / "未分类_0"
@@ -336,22 +312,17 @@ class DictSpider:
         )
         for dict_td in soup.select("div.rcmd_dict"):
             title_div = dict_td.select_one("div.rcmd_dict_title")
-            dict_td_title = (
-                title_div.select_one("a") if title_div is not None else None
-            )
+            dict_td_title = title_div.select_one("a") if title_div is not None else None
             dl_div = dict_td.select_one("div.rcmd_dict_dl_btn")
             dl_a = dl_div.select_one("a") if dl_div is not None else None
             self._submit(
                 self._download,
                 self._sanitize(
-                    (dict_td_title.string if dict_td_title is not None else "")
-                    or ""
+                    (dict_td_title.string if dict_td_title is not None else "") or ""
                 )
                 + "_"
                 + str(
-                    dict_td_title.get("href")
-                    if dict_td_title is not None
-                    else None
+                    dict_td_title.get("href") if dict_td_title is not None else None
                 ).rpartition("/")[-1]
                 + ".scel",
                 "https:" + str(dl_a.get("href") if dl_a is not None else None),
@@ -364,8 +335,7 @@ class DictSpider:
             def _iter_categories() -> Generator[str]:
                 yield "0"
                 for category in BeautifulSoup(
-                    self._get_html("https://pinyin.sogou.com/dict/").text,
-                    "html.parser",
+                    self._get_html("https://pinyin.sogou.com/dict/").text, "html.parser"
                 ).select("div.dict_category_list_title"):
                     a_tag = category.select_one("a")
                     yield (
@@ -414,8 +384,7 @@ if __name__ == "__main__":
         "--directory",
         "-d",
         type=Path,
-        help="The directory to save Sougou dictionaries.\n"
-        "Default: sougou_dict.",
+        help="The directory to save Sougou dictionaries.\nDefault: sougou_dict.",
         metavar="DIR",
     )
     parser.add_argument(
