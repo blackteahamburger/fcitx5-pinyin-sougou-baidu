@@ -96,7 +96,7 @@ class DictSpider:
                 "Connection": "keep-alive",
             }
         )
-        self._stats: dict[str, int] = {"downloaded": 0, "skipped": 0, "failed": 0}
+        self._stats = {"downloaded": 0, "skipped": 0, "failed": 0}
         self._thread_local = threading.local()
         self._sessions: list[requests.Session] = []
         self._executor = queue_thread_pool_executor.QueueThreadPoolExecutor(
@@ -116,7 +116,6 @@ class DictSpider:
 
         """
         self._executor.__enter__()
-        self._download_dicts()
         return self
 
     def __exit__(
@@ -146,15 +145,11 @@ class DictSpider:
             failures = 0
             with contextlib.suppress(Exception):
                 failures = self._report_stats()
-            with contextlib.suppress(Exception):
                 for s in self._sessions:
-                    with contextlib.suppress(Exception):
-                        s.close()
-
-        if typ is None and failures:
+                    s.close()
+        if failures:
             msg = f"Application finished with {failures} failures."
-            raise RuntimeError(msg)
-
+            raise RuntimeError(msg) from exc
         return rv
 
     def _submit(
@@ -174,6 +169,12 @@ class DictSpider:
 
     def _get_html(self, url: str) -> requests.Response:
 
+        @tenacity.retry(
+            stop=tenacity.stop_after_attempt(self.max_retries + 1),
+            wait=tenacity.wait_exponential(multiplier=1, max=60),
+            retry=tenacity.retry_if_exception_type(requests.RequestException),
+            before_sleep=tenacity.before_sleep_log(log, logging.WARNING),
+        )
         def _attempt() -> requests.Response:
             response = self._get_session().get(
                 url, headers=self.headers, timeout=self.timeout
@@ -185,16 +186,9 @@ class DictSpider:
             return response
 
         try:
-            return tenacity.retry(
-                reraise=True,
-                stop=tenacity.stop_after_attempt(self.max_retries + 1),
-                wait=tenacity.wait_exponential(multiplier=1, max=60),
-                retry=tenacity.retry_if_exception_type(requests.RequestException),
-                before_sleep=tenacity.before_sleep_log(log, logging.WARNING),
-            )(_attempt)()
-        except Exception:
-            msg = f"Failed to fetch {url}."
-            log.exception(msg)
+            return _attempt()
+        except tenacity.RetryError:
+            log.exception("Failed to fetch %s", url)
             raise
 
     def _download(self, name: str, url: str, category_path: Path) -> None:
@@ -204,16 +198,16 @@ class DictSpider:
             with self._lock:
                 self._stats["skipped"] += 1
             return
-
         try:
             file_path.write_bytes(self._get_html(url).content)
-            with self._lock:
-                self._stats["downloaded"] += 1
-            log.info("%s downloaded successfully.", name)
         except Exception:
             with self._lock:
                 self._stats["failed"] += 1
             raise
+        else:
+            with self._lock:
+                self._stats["downloaded"] += 1
+            log.info("%s downloaded successfully.", name)
 
     @classmethod
     def _sanitize(cls, raw: str) -> str:
@@ -329,7 +323,8 @@ class DictSpider:
                 category_path,
             )
 
-    def _download_dicts(self) -> None:
+    def download_dicts(self) -> None:
+        """Download dictionaries."""
         if self.categories is None:
 
             def _iter_categories() -> Generator[str]:
@@ -361,7 +356,6 @@ class DictSpider:
         log.info("downloaded=%d", self._stats.get("downloaded", 0))
         log.info("skipped=%d", self._stats.get("skipped", 0))
         log.info("failed=%d", self._stats.get("failed", 0))
-
         log.info("")
         log.info("---- Detailed Exception Summary ----")
         failures = 0
@@ -447,4 +441,4 @@ if __name__ == "__main__":
         args.max_retries,
         args.timeout,
     ) as dict_spider:
-        pass
+        dict_spider.download_dicts()
